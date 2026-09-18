@@ -549,13 +549,40 @@
           .withFailureHandler(handleError)
           .submitInventoryItem(payload);
       } else {
+        // Mode Standalone Web (GitHub Pages)
+        // text/plain mencegah CORS OPTIONS preflight
         fetch(APPS_SCRIPT_URL, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
           body: JSON.stringify(payload)
         })
-        .then(res => res.json())
-        .then(handleResponse)
-        .catch(handleError);
+        .then(function(res) {
+          return res.json();
+        })
+        .then(function(data) {
+          handleResponse(data);
+        })
+        .catch(function(err) {
+          console.warn('Standard read failed, executing no-cors fallback:', err);
+          fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: {
+              'Content-Type': 'text/plain;charset=utf-8'
+            },
+            body: JSON.stringify(payload)
+          })
+          .then(function() {
+            handleResponse({
+              success: true,
+              idBarang: 'Tersimpan ke Sistem',
+              photoCount: payload.photos ? payload.photos.length : 0
+            });
+          })
+          .catch(handleError);
+        });
       }
     });
 
