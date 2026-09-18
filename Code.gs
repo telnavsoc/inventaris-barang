@@ -121,6 +121,7 @@ function setupDatabaseAndFolders() {
     'Merk / Type',
     'Lokasi',
     'Kondisi',
+    'Keterangan',
     'Jumlah Foto',
     'Link Foto Drive'
   ];
@@ -220,6 +221,9 @@ function submitInventoryItem(payload) {
       photoLinkFormula = photoUrls.join('\n');
     }
 
+    // Pastikan kolom Keterangan ada
+    ensureKeteranganColumn_(sheet);
+
     // Simpan baris baru ke sheet
     sheet.appendRow([
       timestamp,
@@ -228,14 +232,15 @@ function submitInventoryItem(payload) {
       payload.merkType || '-',
       payload.lokasi,
       payload.kondisi,
+      payload.keterangan || '-',
       photoUrls.length,
       photoLinkFormula
     ]);
 
     // Format wrap teks kolom link
     const lastRow = sheet.getLastRow();
-    sheet.getRange(lastRow, 1, 1, 8).setVerticalAlignment('middle');
-    sheet.getRange(lastRow, 8).setWrap(true);
+    sheet.getRange(lastRow, 1, 1, 9).setVerticalAlignment('middle');
+    sheet.getRange(lastRow, 9).setWrap(true);
 
     return {
       success: true,
@@ -253,6 +258,24 @@ function submitInventoryItem(payload) {
 }
 
 /**
+ * Helper: Memastikan kolom Keterangan ada di Sheet Data Inventaris
+ */
+function ensureKeteranganColumn_(sheet) {
+  if (!sheet) return;
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 7) return;
+  const header7 = String(sheet.getRange(1, 7).getValue() || '').trim();
+  if (header7.toLowerCase() === 'jumlah foto') {
+    sheet.insertColumnBefore(7);
+    sheet.getRange(1, 7).setValue('Keterangan')
+      .setFontWeight('bold')
+      .setBackground('#1a73e8')
+      .setFontColor('#ffffff')
+      .setHorizontalAlignment('center');
+  }
+}
+
+/**
  * Mengambil semua daftar barang dari Sheet
  */
 function getInventoryItems() {
@@ -260,10 +283,13 @@ function getInventoryItems() {
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) return [];
 
+  ensureKeteranganColumn_(sheet);
+
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+  const lastCol = Math.max(sheet.getLastColumn(), 9);
+  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
   const items = [];
 
   for (let i = data.length - 1; i >= 0; i--) {
@@ -276,7 +302,19 @@ function getInventoryItems() {
       formattedDate = String(rawTimestamp || '');
     }
 
-    const rawPhotos = String(row[7] || '');
+    let keterangan = '-';
+    let photoCount = 0;
+    let rawPhotos = '';
+
+    if (lastCol >= 9) {
+      keterangan = String(row[6] || '-');
+      photoCount = Number(row[7] || 0);
+      rawPhotos = String(row[8] || '');
+    } else {
+      photoCount = Number(row[6] || 0);
+      rawPhotos = String(row[7] || '');
+    }
+
     const photoUrls = [];
     const urlMatches = rawPhotos.match(/https?:\/\/[^\s",\)]+/g);
     if (urlMatches) {
@@ -289,7 +327,8 @@ function getInventoryItems() {
       merkType: String(row[3] || '-'),
       lokasi: String(row[4] || ''),
       kondisi: String(row[5] || '(-)'),
-      photoCount: Number(row[6] || 0),
+      keterangan: keterangan,
+      photoCount: photoCount,
       photoUrls: photoUrls,
       timestamp: formattedDate
     });

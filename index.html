@@ -772,6 +772,11 @@
           </div>
 
           <div class="form-group">
+            <label for="keterangan">Keterangan <span class="optional-tag">(Opsional)</span></label>
+            <input type="text" id="keterangan" placeholder="Contoh: SN: 8129381, Rak B-1, Ex perbaikan" autocomplete="off">
+          </div>
+
+          <div class="form-group">
             <label>Foto Barang <span class="optional-tag">(Bisa lebih dari 1)</span></label>
             <div class="upload-box" onclick="document.getElementById('fileInput').click()">
               <div class="upload-icon">📷</div>
@@ -1110,6 +1115,7 @@
       const merkType = document.getElementById('merkType').value.trim();
       const lokasi = document.getElementById('lokasi').value;
       const kondisi = document.querySelector('input[name="kondisi"]:checked')?.value;
+      const keterangan = document.getElementById('keterangan').value.trim();
 
       if (!namaBarang || !lokasi || !kondisi) {
         alert('Mohon isi kolom wajib bertanda bintang (*).');
@@ -1126,6 +1132,7 @@
         merkType: merkType,
         lokasi: lokasi,
         kondisi: kondisi,
+        keterangan: keterangan,
         photos: selectedPhotos.map(p => ({
           name: p.name,
           mimeType: p.mimeType,
@@ -1202,7 +1209,8 @@
         filtered = filtered.filter(it => 
           (it.namaBarang && it.namaBarang.toLowerCase().includes(q)) ||
           (it.merkType && it.merkType.toLowerCase().includes(q)) ||
-          (it.idBarang && it.idBarang.toLowerCase().includes(q))
+          (it.idBarang && it.idBarang.toLowerCase().includes(q)) ||
+          (it.keterangan && it.keterangan.toLowerCase().includes(q))
         );
       }
 
@@ -1263,6 +1271,11 @@
               <span class="badge ${condBadgeClass}">Kondisi: ${escapeHtml(it.kondisi)}</span>
               ${it.timestamp ? `<span style="font-size:11px;color:#5f6368;margin-left:auto">${escapeHtml(it.timestamp)}</span>` : ''}
             </div>
+
+            ${it.keterangan && it.keterangan !== '-' ? `
+            <div style="font-size:12px;color:#3c4043;background:#f1f3f4;border-radius:6px;padding:6px 10px;margin-bottom:8px;line-height:1.4;">
+              <strong>Catatan:</strong> ${escapeHtml(it.keterangan)}
+            </div>` : ''}
 
             ${photoHtml}
 
