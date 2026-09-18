@@ -1437,6 +1437,9 @@
         spinner.style.display = 'none';
         text.textContent = 'Perbarui';
         alert('Error server: ' + err.message);
+      });
+    }
+
     function openDeleteModal(idBarang, namaBarang, lokasi) {
       document.getElementById('deleteIdBarang').value = idBarang;
       document.getElementById('deleteModalItemInfo').innerHTML = `Barang: <strong>${escapeHtml(namaBarang)}</strong> (${escapeHtml(idBarang)})<br>Lokasi: <strong>${escapeHtml(lokasi)}</strong>`;
