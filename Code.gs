@@ -1,4 +1,4 @@
-﻿/**
+/**
  * INVENTARIS GUDANG - GOOGLE APPS SCRIPT
  * Database: Google Sheets (Data Inventaris & Riwayat Mutasi)
  * Storage: Google Drive (Folder per Lokasi)
@@ -20,9 +20,10 @@ const CONFIG = {
  * Melayani antarmuka Web App & API GET
  */
 function doGet(e) {
-  // Jika dipanggil sebagai API JSON
+  // Jika dipanggil sebagai API JSON / JSONP
   if (e && e.parameter && e.parameter.action) {
     const action = e.parameter.action;
+    const callback = e.parameter.callback;
     let result = { success: false, error: 'Aksi tidak dikenali' };
     try {
       if (action === 'list') {
@@ -32,6 +33,11 @@ function doGet(e) {
       }
     } catch (err) {
       result = { success: false, error: err.toString() };
+    }
+
+    if (callback) {
+      return ContentService.createTextOutput(callback + '(' + JSON.stringify(result) + ')')
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
     }
     return ContentService.createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);
