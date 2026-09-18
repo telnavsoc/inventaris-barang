@@ -1,11 +1,12 @@
-/**
+﻿/**
  * INVENTARIS GUDANG - GOOGLE APPS SCRIPT
- * Database: Google Sheets
+ * Database: Google Sheets (Data Inventaris & Riwayat Mutasi)
  * Storage: Google Drive (Folder per Lokasi)
  */
 
 const CONFIG = {
   SHEET_NAME: 'Data Inventaris',
+  MUTASI_SHEET_NAME: 'Riwayat Mutasi',
   ROOT_FOLDER_NAME: 'INVENTARIS GUDANG',
   LOCATIONS: [
     'Ruang telnav',
@@ -16,47 +17,27 @@ const CONFIG = {
 };
 
 /**
- * Buat GOOGLE FORM RESMI (forms.google.com).
- * 100% native Google, bisa dibuka di SEMUA HP normal tanpa Incognito.
- */
-function createOfficialGoogleForm() {
-  const form = FormApp.create('Inventaris Gudang');
-  form.setDescription('Formulir Inventarisasi Barang Gudang');
-  
-  // 1. Nama Barang
-  form.addTextItem().setTitle('Nama Barang').setRequired(true);
-  
-  // 2. Merk / Type
-  form.addTextItem().setTitle('Merk / Type (Opsional)').setRequired(false);
-  
-  // 3. Lokasi
-  form.addListItem()
-    .setTitle('Lokasi')
-    .setChoiceValues(CONFIG.LOCATIONS)
-    .setRequired(true);
-    
-  // 4. Kondisi
-  form.addMultipleChoiceItem()
-    .setTitle('Kondisi')
-    .setChoiceValues(['Baik', 'Rusak', '(-)'])
-    .setRequired(true);
-
-  // Link respon langsung ke Spreadsheet aktif
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
-
-  const editUrl = form.getEditUrl();
-  const publishedUrl = form.getPublishedUrl();
-  
-  Logger.log('LINK EDIT FORM: ' + editUrl);
-  Logger.log('LINK FORM HP: ' + publishedUrl);
-  return publishedUrl;
-}
-
-/**
- * Melayani antarmuka Web App
+ * Melayani antarmuka Web App & API GET
  */
 function doGet(e) {
+  // Jika dipanggil sebagai API JSON
+  if (e && e.parameter && e.parameter.action) {
+    const action = e.parameter.action;
+    let result = { success: false, error: 'Aksi tidak dikenali' };
+    try {
+      if (action === 'list') {
+        result = { success: true, items: getInventoryItems() };
+      } else if (action === 'history') {
+        result = { success: true, history: getMutationHistory() };
+      }
+    } catch (err) {
+      result = { success: false, error: err.toString() };
+    }
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Standar Web App HTML
   var htmlName = 'index';
   try {
     return HtmlService.createHtmlOutputFromFile(htmlName)
@@ -86,7 +67,23 @@ function doPost(e) {
       throw new Error('Data payload kosong.');
     }
 
-    const result = submitInventoryItem(payload);
+    const action = payload.action || 'create';
+    let result;
+
+    if (action === 'create') {
+      result = submitInventoryItem(payload);
+    } else if (action === 'list') {
+      result = { success: true, items: getInventoryItems() };
+    } else if (action === 'move') {
+      result = moveInventoryItem(payload);
+    } else if (action === 'updateCondition') {
+      result = updateInventoryCondition(payload);
+    } else if (action === 'history') {
+      result = { success: true, history: getMutationHistory() };
+    } else {
+      throw new Error('Aksi tidak dikenali: ' + action);
+    }
+
     return ContentService.createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -120,7 +117,7 @@ function setupDatabaseAndFolders() {
     'Link Foto Drive'
   ];
   
-  // Format Header
+  // Format Header Data Inventaris
   sheet.getRange(1, 1, 1, headers.length)
     .setValues([headers])
     .setFontWeight('bold')
@@ -133,6 +130,9 @@ function setupDatabaseAndFolders() {
     sheet.autoResizeColumn(i);
   }
   
+  // Siapkan Sheet Riwayat Mutasi
+  setupMutationSheet_(ss);
+
   // Siapkan Folder Drive
   const rootFolder = getOrCreateFolder_(CONFIG.ROOT_FOLDER_NAME);
   CONFIG.LOCATIONS.forEach(function(loc) {
@@ -141,6 +141,28 @@ function setupDatabaseAndFolders() {
   
   Logger.log('Inisialisasi selesai! Folder root ID: ' + rootFolder.getId());
   return 'Sukses inisialisasi sheet dan folder Drive!';
+}
+
+/**
+ * Setup Sheet Riwayat Mutasi
+ */
+function setupMutationSheet_(ss) {
+  let sheet = ss.getSheetByName(CONFIG.MUTASI_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.MUTASI_SHEET_NAME);
+  }
+  const headers = ['Timestamp', 'ID Barang', 'Nama Barang', 'Lokasi Asal', 'Lokasi Baru', 'Keterangan'];
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#0d47a1')
+    .setFontColor('#ffffff')
+    .setHorizontalAlignment('center');
+  sheet.setFrozenRows(1);
+  for (let i = 1; i <= headers.length; i++) {
+    sheet.autoResizeColumn(i);
+  }
+  return sheet;
 }
 
 /**
@@ -220,6 +242,186 @@ function submitInventoryItem(payload) {
       error: err.toString()
     };
   }
+}
+
+/**
+ * Mengambil semua daftar barang dari Sheet
+ */
+function getInventoryItems() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!sheet) return [];
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+  const items = [];
+
+  for (let i = data.length - 1; i >= 0; i--) {
+    const row = data[i];
+    const rawTimestamp = row[0];
+    let formattedDate = '';
+    try {
+      formattedDate = Utilities.formatDate(new Date(rawTimestamp), Session.getScriptTimeZone() || 'Asia/Jakarta', 'dd/MM/yyyy HH:mm');
+    } catch(e) {
+      formattedDate = String(rawTimestamp || '');
+    }
+
+    const rawPhotos = String(row[7] || '');
+    const photoUrls = [];
+    const urlMatches = rawPhotos.match(/https?:\/\/[^\s",\)]+/g);
+    if (urlMatches) {
+      photoUrls.push(...urlMatches);
+    }
+
+    items.push({
+      idBarang: String(row[1] || ''),
+      namaBarang: String(row[2] || ''),
+      merkType: String(row[3] || '-'),
+      lokasi: String(row[4] || ''),
+      kondisi: String(row[5] || '(-)'),
+      photoCount: Number(row[6] || 0),
+      photoUrls: photoUrls,
+      timestamp: formattedDate
+    });
+  }
+
+  return items;
+}
+
+/**
+ * Pindah Lokasi Barang (Mutasi)
+ */
+function moveInventoryItem(payload) {
+  if (!payload.idBarang || !payload.lokasiBaru) {
+    throw new Error('ID Barang dan Lokasi Baru wajib diisi.');
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!sheet) throw new Error('Sheet Data Inventaris tidak ditemukan.');
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error('Database inventaris masih kosong.');
+
+  const idColValues = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  let targetRow = -1;
+  for (let i = 0; i < idColValues.length; i++) {
+    if (String(idColValues[i][0]).trim() === String(payload.idBarang).trim()) {
+      targetRow = i + 2;
+      break;
+    }
+  }
+
+  if (targetRow === -1) {
+    throw new Error('Barang dengan ID ' + payload.idBarang + ' tidak ditemukan.');
+  }
+
+  const namaBarang = sheet.getRange(targetRow, 3).getValue();
+  const lokasiAsal = sheet.getRange(targetRow, 5).getValue();
+  const lokasiBaru = payload.lokasiBaru;
+
+  // Update kolom Lokasi (Kolom 5)
+  sheet.getRange(targetRow, 5).setValue(lokasiBaru);
+
+  // Catat log ke sheet Riwayat Mutasi
+  let mutasiSheet = ss.getSheetByName(CONFIG.MUTASI_SHEET_NAME);
+  if (!mutasiSheet) {
+    mutasiSheet = setupMutationSheet_(ss);
+  }
+
+  const now = new Date();
+  mutasiSheet.appendRow([
+    now,
+    payload.idBarang,
+    namaBarang,
+    lokasiAsal,
+    lokasiBaru,
+    payload.keterangan || '-'
+  ]);
+
+  return {
+    success: true,
+    idBarang: payload.idBarang,
+    namaBarang: namaBarang,
+    lokasiAsal: lokasiAsal,
+    lokasiBaru: lokasiBaru
+  };
+}
+
+/**
+ * Ubah Kondisi Barang (Baik / Rusak / (-))
+ */
+function updateInventoryCondition(payload) {
+  if (!payload.idBarang || !payload.kondisiBaru) {
+    throw new Error('ID Barang dan Kondisi Baru wajib diisi.');
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!sheet) throw new Error('Sheet Data Inventaris tidak ditemukan.');
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error('Database inventaris masih kosong.');
+
+  const idColValues = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  let targetRow = -1;
+  for (let i = 0; i < idColValues.length; i++) {
+    if (String(idColValues[i][0]).trim() === String(payload.idBarang).trim()) {
+      targetRow = i + 2;
+      break;
+    }
+  }
+
+  if (targetRow === -1) {
+    throw new Error('Barang dengan ID ' + payload.idBarang + ' tidak ditemukan.');
+  }
+
+  // Update kolom Kondisi (Kolom 6)
+  sheet.getRange(targetRow, 6).setValue(payload.kondisiBaru);
+
+  return {
+    success: true,
+    idBarang: payload.idBarang,
+    kondisiBaru: payload.kondisiBaru
+  };
+}
+
+/**
+ * Ambil Riwayat Mutasi
+ */
+function getMutationHistory() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.MUTASI_SHEET_NAME);
+  if (!sheet) return [];
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  const history = [];
+
+  for (let i = data.length - 1; i >= 0; i--) {
+    const row = data[i];
+    let formattedDate = '';
+    try {
+      formattedDate = Utilities.formatDate(new Date(row[0]), Session.getScriptTimeZone() || 'Asia/Jakarta', 'dd/MM/yyyy HH:mm');
+    } catch(e) {
+      formattedDate = String(row[0] || '');
+    }
+
+    history.push({
+      timestamp: formattedDate,
+      idBarang: String(row[1] || ''),
+      namaBarang: String(row[2] || ''),
+      lokasiAsal: String(row[3] || ''),
+      lokasiBaru: String(row[4] || ''),
+      keterangan: String(row[5] || '-')
+    });
+  }
+
+  return history;
 }
 
 /**
