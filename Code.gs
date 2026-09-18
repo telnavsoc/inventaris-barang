@@ -47,12 +47,12 @@ function doGet(e) {
   var htmlName = 'index';
   try {
     return HtmlService.createHtmlOutputFromFile(htmlName)
-      .setTitle('Inventaris Barang Gudang')
+      .setTitle('Inventaris Barang - AirNav KCP Solo - Telnav')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   } catch (err) {
     return HtmlService.createHtmlOutputFromFile('Index')
-      .setTitle('Inventaris Barang Gudang')
+      .setTitle('Inventaris Barang - AirNav KCP Solo - Telnav')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
