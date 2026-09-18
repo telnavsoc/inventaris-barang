@@ -506,6 +506,32 @@
       background: #fff8e1;
     }
 
+    .btn-action-delete {
+      color: #c62828;
+      border-color: #ffcdd2;
+      background: #ffebee;
+    }
+
+    .btn-danger {
+      background: #d32f2f;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .btn-danger:active {
+      background: #b71c1c;
+    }
+
     /* Mutation History List */
     .history-card {
       background: white;
@@ -889,6 +915,41 @@
             <span id="btnTextCond">Perbarui</span>
           </button>
         </div>
+  <!-- ================= MODAL HAPUS / KELUARKAN BARANG ================= -->
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal-box">
+      <div class="modal-title" style="color: #c62828;">🗑️ Keluarkan / Hapus Aset</div>
+      <div class="modal-desc" id="deleteModalItemInfo">Barang: -</div>
+
+      <form id="deleteForm" onsubmit="submitDeleteItem(event)">
+        <input type="hidden" id="deleteIdBarang">
+
+        <div class="form-group">
+          <label class="required">Alasan Pengeluaran</label>
+          <select id="deleteAlasan" required>
+            <option value="Dibuang / Scrap" selected>Dibuang / Scrap (Rusak Total)</option>
+            <option value="Dipakai Habis">Dipakai Habis / Material Terpakai</option>
+            <option value="Dikirim ke Cabang Lain">Dikirim ke Cabang Lain</option>
+            <option value="Salah Input (Hapus Permanen)">Salah Input (Hapus Permanen)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Keterangan / Tujuan <span class="optional-tag">(Opsional)</span></label>
+          <input type="text" id="deleteCatatan" placeholder="Contoh: Dikirim ke AirNav Cabang Semarang">
+        </div>
+
+        <div style="background:#fce8e6;color:#c62828;padding:10px;border-radius:8px;font-size:12px;margin-bottom:14px;line-height:1.4;">
+          ⚠️ Barang akan dihapus dari daftar stok aktif, dan riwayat pengeluarannya otomatis dicatat di tab Mutasi.
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closeModal('deleteModal')">Batal</button>
+          <button type="submit" class="btn-danger" id="btnSubmitDelete">
+            <div class="spinner" id="spinnerDelete"></div>
+            <span id="btnTextDelete">Keluarkan Barang</span>
+          </button>
+        </div>
       </form>
     </div>
   </div>
@@ -1206,7 +1267,10 @@
                 🔄 Pindah Lokasi
               </button>
               <button class="btn-action btn-action-cond" onclick="openCondModal('${it.idBarang}', '${escapeHtml(it.namaBarang)}', '${escapeHtml(it.kondisi)}')">
-                🛠️ Ubah Kondisi
+                🛠️ Kondisi
+              </button>
+              <button class="btn-action btn-action-delete" onclick="openDeleteModal('${it.idBarang}', '${escapeHtml(it.namaBarang)}', '${escapeHtml(it.lokasi)}')">
+                🗑️ Keluarkan
               </button>
             </div>
           </div>
@@ -1373,6 +1437,60 @@
         spinner.style.display = 'none';
         text.textContent = 'Perbarui';
         alert('Error server: ' + err.message);
+    function openDeleteModal(idBarang, namaBarang, lokasi) {
+      document.getElementById('deleteIdBarang').value = idBarang;
+      document.getElementById('deleteModalItemInfo').innerHTML = `Barang: <strong>${escapeHtml(namaBarang)}</strong> (${escapeHtml(idBarang)})<br>Lokasi: <strong>${escapeHtml(lokasi)}</strong>`;
+      document.getElementById('deleteAlasan').value = 'Dibuang / Scrap';
+      document.getElementById('deleteCatatan').value = '';
+      document.getElementById('deleteModal').classList.add('active');
+    }
+
+    function submitDeleteItem(e) {
+      e.preventDefault();
+      const idBarang = document.getElementById('deleteIdBarang').value;
+      const alasan = document.getElementById('deleteAlasan').value;
+      const catatan = document.getElementById('deleteCatatan').value.trim();
+
+      if (!confirm('Yakin ingin mengeluarkan aset ' + idBarang + ' (' + alasan + ')?')) {
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitDelete');
+      const spinner = document.getElementById('spinnerDelete');
+      const text = document.getElementById('btnTextDelete');
+
+      btn.disabled = true;
+      spinner.style.display = 'block';
+      text.textContent = 'Memproses...';
+
+      const payload = {
+        action: 'delete',
+        idBarang: idBarang,
+        alasan: alasan,
+        catatan: catatan
+      };
+
+      sendApiRequest(payload, function(response) {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        text.textContent = 'Keluarkan Barang';
+        closeModal('deleteModal');
+
+        if (response && response.success) {
+          alert('Barang berhasil dikeluarkan dari inventaris aktif.');
+          // Hapus dari list array lokal
+          inventoryItems = inventoryItems.filter(i => i.idBarang !== idBarang);
+          filterItems();
+          // Reset cache riwayat agar ter-update saat tab mutasi dibuka
+          mutationHistory = [];
+        } else {
+          alert('Gagal mengeluarkan barang: ' + (response ? response.error : 'Terjadi kendala.'));
+        }
+      }, function(err) {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        text.textContent = 'Keluarkan Barang';
+        alert('Error server: ' + err.message);
       });
     }
 
@@ -1398,6 +1516,8 @@
           google.script.run.withSuccessHandler(onSuccess).withFailureHandler(onError).updateInventoryCondition(payload);
         } else if (payload.action === 'history') {
           google.script.run.withSuccessHandler(res => onSuccess({ success: true, history: res })).withFailureHandler(onError).getMutationHistory();
+        } else if (payload.action === 'delete') {
+          google.script.run.withSuccessHandler(onSuccess).withFailureHandler(onError).deleteInventoryItem(payload);
         }
         return;
       }

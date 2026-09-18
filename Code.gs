@@ -86,6 +86,8 @@ function doPost(e) {
       result = updateInventoryCondition(payload);
     } else if (action === 'history') {
       result = { success: true, history: getMutationHistory() };
+    } else if (action === 'delete') {
+      result = deleteInventoryItem(payload);
     } else {
       throw new Error('Aksi tidak dikenali: ' + action);
     }
@@ -392,6 +394,73 @@ function updateInventoryCondition(payload) {
     idBarang: payload.idBarang,
     kondisiBaru: payload.kondisiBaru
   };
+}
+
+/**
+ * Hapus / Keluarkan Barang dari inventaris aktif
+ * Catat log ke sheet Riwayat Mutasi untuk audit trail
+ */
+function deleteInventoryItem(payload) {
+  try {
+    if (!payload || !payload.idBarang) {
+      throw new Error('ID Barang tidak valid.');
+    }
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+    if (!sheet) throw new Error('Sheet data inventaris tidak ditemukan.');
+
+    const data = sheet.getDataRange().getValues();
+    let targetRow = -1;
+    let itemData = null;
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][1]).trim() === String(payload.idBarang).trim()) {
+        targetRow = i + 1; // 1-based row index
+        itemData = data[i];
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      throw new Error('Barang dengan ID ' + payload.idBarang + ' tidak ditemukan di daftar aktif.');
+    }
+
+    const namaBarang = String(itemData[2] || '-');
+    const lokasiAsal = String(itemData[4] || '-');
+    const alasan = payload.alasan || 'Dihapus';
+    const catatan = payload.catatan ? alasan + ': ' + payload.catatan : alasan;
+
+    // Hapus baris dari sheet Data Inventaris aktif
+    sheet.deleteRow(targetRow);
+
+    // Catat ke sheet Riwayat Mutasi sebagai bukti audit pengeluaran aset
+    let mutasiSheet = ss.getSheetByName(CONFIG.MUTASI_SHEET_NAME);
+    if (!mutasiSheet) {
+      mutasiSheet = setupMutationSheet_(ss);
+    }
+
+    mutasiSheet.appendRow([
+      new Date(),
+      payload.idBarang,
+      namaBarang,
+      lokasiAsal,
+      '[' + alasan.toUpperCase() + ']',
+      catatan
+    ]);
+
+    return {
+      success: true,
+      message: 'Barang berhasil dikeluarkan dari inventaris aktif.',
+      idBarang: payload.idBarang,
+      alasan: alasan
+    };
+  } catch (err) {
+    Logger.log('Error hapus barang: ' + err.toString());
+    return {
+      success: false,
+      error: err.toString()
+    };
+  }
 }
 
 /**
